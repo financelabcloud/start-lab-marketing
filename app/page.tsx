@@ -2,17 +2,50 @@
 
 import { useState } from "react";
 import { Beaker, Users, FileText, ArrowRight, CheckCircle2 } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+
+// --- FIX 1: Initialize Supabase ---
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function Home() {
-  const[email, setEmail] = useState("");
+  const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  // --- FIX 2: Define isLoading state ---
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleWaitlist = (e: React.FormEvent) => {
+  const handleWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
-    // We will wire this to Supabase later! For now, just show the success state.
-    setSubmitted(true);
-    setEmail("");
+    setIsLoading(true);
+
+    try {
+      // 1. Save permanently to Supabase
+      const { error } = await supabase
+        .from('waitlist')
+        .insert([{ email: email }]);
+
+      // Ignore if they are already on the list (duplicate email)
+      if (error && error.code !== '23505') throw error;
+
+      // 2. Trigger the Resend API (Sends email + adds to Contacts)
+      await fetch('/api/welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email }),
+      });
+
+      // 3. Show Success UI
+      setSubmitted(true);
+      setEmail("");
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -111,7 +144,8 @@ export default function Home() {
         {submitted ? (
           <div className="flex items-center justify-center gap-2 text-emerald-400 bg-emerald-400/10 py-4 px-6 rounded-full border border-emerald-400/20 w-fit mx-auto">
             <CheckCircle2 className="w-5 h-5" />
-            <span className="font-medium">You're on the list! Keep building.</span>
+            {/* --- FIX 3: Escaped Apostrophe --- */}
+            <span className="font-medium">You&apos;re on the list! Keep building.</span>
           </div>
         ) : (
           <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
@@ -121,13 +155,15 @@ export default function Home() {
               placeholder="founder@startup.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              disabled={isLoading}
+              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:opacity-50"
             />
             <button
               type="submit"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-3 rounded-lg transition-colors whitespace-nowrap"
+              disabled={isLoading}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-3 rounded-lg transition-colors whitespace-nowrap disabled:opacity-50"
             >
-              Get Updates
+              {isLoading ? "Joining..." : "Get Updates"}
             </button>
           </form>
         )}
